@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module>
+    <name>auto_group_promotion</name>
+    <displayName>Auto Group Promotion</displayName>
+    <version>1.0.0</version>
+    <author>Aitor</author>
+    <description>Cambia automáticamente el grupo de clientes cuando cumplen las condiciones de la promoción.</description>
+    <tab>front_office_features</tab> 
+    <need_instance>0</need_instance>
+    <ps_versions_compliancy>
+        <min>1.7</min>
+        <max>8.1.2</max>
+    </ps_versions_compliancy>
+    <is_eu_compatible>1</is_eu_compatible> 
+</module>
