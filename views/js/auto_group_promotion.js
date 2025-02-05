@@ -1,6 +1,6 @@
 // Esperamos a que el documento esté listo
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('Cargado el js')
+    console.log('Cargado el js');
     if (typeof autoGroupPromotionModal !== 'undefined' && autoGroupPromotionModal) {
         // Creamos el modal
         let modal = document.createElement('div');
