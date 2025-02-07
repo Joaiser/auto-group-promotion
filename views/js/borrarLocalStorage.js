@@ -1,8 +1,9 @@
-// Esperamos a que el documento esté listo
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('Cargado el js para quitar localStorage')
-
-    // Restablecemos el valor en localStorage para permitir que el modal se muestre de nuevo
-    localStorage.removeItem('auto_group_promotion_modal');
-
+    if (typeof(Storage) !== "undefined") {
+        console.log("localStorage disponible");
+        localStorage.removeItem('auto_group_promotion_modal');
+        console.log("Item eliminado de localStorage");
+    } else {
+        console.log("localStorage no está disponible");
+    }
 });

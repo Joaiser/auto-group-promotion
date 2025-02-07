@@ -159,24 +159,27 @@ class Auto_Group_Promotion extends Module
     {
         $id_cliente = $params['order']->id_customer;
         $grupo_restaurar = $this->obtenerUltimoGrupoEliminado($id_cliente);
-
+    
         if ($grupo_restaurar) {
             $sql = 'INSERT INTO `' . _DB_PREFIX_ . 'customer_group` (id_customer, id_group) 
                     VALUES (' . (int)$id_cliente . ', ' . (int)$grupo_restaurar . ')';
             Db::getInstance()->execute($sql);
-
+    
             $this->eliminarGrupoGuardado($id_cliente); // Eliminamos de la tabla de eliminados
         }
-
+    
+        // Asegúrate de que el archivo JS se cargue correctamente
+        PrestaShopLogger::addLog('Añadiendo JS para borrar localStorage.');
         $this->context->controller->addJS($this->_path . 'views/js/borrarLocalStorage.js');
     }
+    
 
     public function hookActionDispatcherBefore($params)
 {
-    $controller = Tools::getValue('controller');
     $context = Context::getContext();
     $id_cliente = $context->customer->id;
 
+    // Si el cliente no está logueado, salimos
     if (!$id_cliente) {
         return;
     }
@@ -186,6 +189,17 @@ class Auto_Group_Promotion extends Module
         // Eliminar la cookie personalizada
         $context->cookie->__unset('hook_action_carrier_process');
         return;
+    }
+
+    // Obtenemos el nombre del controlador usando Tools::getValue('controller')
+    $controller_name = Tools::getValue('controller');
+    PrestaShopLogger::addLog('Controller: ' . $controller_name);  // Log para verificar el controlador actual
+
+    // Verificamos si estamos en la página de pago/checkout (order, orderconfirmation, etc.)
+    $paginas_pago = ['order', 'orderconfirmation', 'ajax'];  // Añadimos 'order' aquí
+    if (in_array($controller_name, $paginas_pago)) {
+        PrestaShopLogger::addLog('Estamos en una página de pago/checkout, no restauramos el grupo.');
+        return; // No restauramos el grupo si estamos en una página de pago o checkout
     }
 
     // Si el cliente abandona el checkout, restauramos su grupo
