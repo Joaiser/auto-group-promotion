@@ -35,8 +35,15 @@ class Auto_Group_Promotion extends Module
         return parent::install()
             && $this->registerHook('actionCarrierProcess')
             && $this->registerHook('actionValidateOrder')
+            && $this->registerHook('actionDispatcherBefore')
             && $this->createTable();
     }
+
+    public function reset()
+{
+    return $this->uninstall() && $this->install();
+}
+
 
     public function uninstall()
     {
@@ -100,6 +107,11 @@ class Auto_Group_Promotion extends Module
 
     public function hookActionCarrierProcess($params)
     {
+       //Cookie para que se ejecute este hook y no otros
+        $context = Context::getContext();
+        $context->cookie->__set('hook_action_carrier_process', true);
+        $context->cookie->write();
+
         $context = Context::getContext();
         $cart = $context->cart;
         $id_cliente = $context->customer->id;
@@ -138,7 +150,10 @@ class Auto_Group_Promotion extends Module
                 }
             }
         }
+
+         
     }
+
 
     public function hookActionValidateOrder($params)
     {
@@ -155,4 +170,35 @@ class Auto_Group_Promotion extends Module
 
         $this->context->controller->addJS($this->_path . 'views/js/borrarLocalStorage.js');
     }
+
+    public function hookActionDispatcherBefore($params)
+{
+    $controller = Tools::getValue('controller');
+    $context = Context::getContext();
+    $id_cliente = $context->customer->id;
+
+    if (!$id_cliente) {
+        return;
+    }
+
+    // Revisar si hookActionCarrierProcess se ejecutó
+    if (!empty($context->cookie->__get('hook_action_carrier_process'))) {
+        // Eliminar la cookie personalizada
+        $context->cookie->__unset('hook_action_carrier_process');
+        return;
+    }
+
+    // Si el cliente abandona el checkout, restauramos su grupo
+    $grupo_restaurar = $this->obtenerUltimoGrupoEliminado($id_cliente);
+    if ($grupo_restaurar) {
+        Db::getInstance()->execute(
+            'INSERT INTO `' . _DB_PREFIX_ . 'customer_group` (id_customer, id_group) 
+            VALUES (' . (int)$id_cliente . ', ' . (int)$grupo_restaurar . ')'
+        );
+
+        // Eliminamos el registro temporal
+        $this->eliminarGrupoGuardado($id_cliente);
+    }
+}
+
 }
