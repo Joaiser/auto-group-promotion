@@ -1,3 +1,0 @@
--Arreglar que se vuelva a mostrar el modal, quitando el local.storage
--Arreglar que vuelva a su grupo si sale de la página de pago
--En el otro modulo relacionado, poner al cliente para que seleccione que metodo de pago quiere.

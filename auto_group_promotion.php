@@ -7,7 +7,8 @@ if (!defined('_PS_VERSION_')) {
 class Auto_Group_Promotion extends Module
 {
     // 📌 Definir constantes
-    const GROUP_PROMOCION_PENINSULA_8 = 57;  
+
+    const GROUP_PROMOCION_PENINSULA_8 = 48;  
     const GROUP_PROMOCION_PENINSULA_16 = 51;  
     const GROUP_PROMOCION_CANARIAS_8 = 55;  
     const GROUP_PROMOCION_CANARIAS_16 = 58;   
@@ -92,6 +93,13 @@ class Auto_Group_Promotion extends Module
         Db::getInstance()->execute($sql);
     }
 
+    private function obtenerUltimoGrupoEliminadodePromotionModalLog($id_cliente)
+    {
+        $sql = 'SELECT last_group_default FROM `' . _DB_PREFIX_ . 'promotion_modal_log` 
+                WHERE id_customer = ' . (int)$id_cliente;
+        return Db::getInstance()->getValue($sql);
+    }
+
     private function obtenerUltimoGrupoEliminado($id_cliente)
     {
         $sql = 'SELECT id_group FROM `' . _DB_PREFIX_ . 'customer_removed_group` 
@@ -107,74 +115,83 @@ class Auto_Group_Promotion extends Module
 
     public function hookActionCarrierProcess($params)
     {
-       //Cookie para que se ejecute este hook y no otros
+        // Cookie para que se ejecute este hook y no otros
         $context = Context::getContext();
         $context->cookie->__set('hook_action_carrier_process', true);
         $context->cookie->write();
-
-        $context = Context::getContext();
+    
         $cart = $context->cart;
         $id_cliente = $context->customer->id;
-
+    
         if (!$this->clienteEnPromocion($id_cliente)) {
             return;
         }
-
+    
         $total_pedido = $cart->getOrderTotal(true, Cart::BOTH);
         $portes = $this->obtenerMinimoPortes($id_cliente);
-
+    
         if ($total_pedido < $portes) {
             Media::addJsDef(['autoGroupPromotionModal' => true]);
             $this->context->controller->addJS($this->_path . 'views/js/auto_group_promotion.js');
-
+    
             $grupos_promocion = [
                 self::GROUP_PROMOCION_PENINSULA_8,
                 self::GROUP_PROMOCION_PENINSULA_16,
                 self::GROUP_PROMOCION_CANARIAS_8,
                 self::GROUP_PROMOCION_CANARIAS_16
             ];
-
+    
             foreach ($grupos_promocion as $grupo) {
                 $sql = 'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'customer_group` 
                         WHERE id_customer = ' . (int)$id_cliente . ' 
                         AND id_group = ' . (int)$grupo;
-
+    
                 if (Db::getInstance()->getValue($sql)) {
+                    // Guardar el grupo eliminado en customer_removed_group
                     $this->guardarGrupoEliminado($id_cliente, $grupo);
-
-                    $sql = 'DELETE FROM `' . _DB_PREFIX_ . 'customer_group` 
-                            WHERE id_customer = ' . (int)$id_cliente . ' 
-                            AND id_group = ' . (int)$grupo;
-                    Db::getInstance()->execute($sql);
+    
+                    // Obtener el último grupo por defecto desde promotion_modal_log
+                    $ultimo_grupo = $this->obtenerUltimoGrupoEliminadodePromotionModalLog($id_cliente);
+    
+                    // Si existe un grupo anterior, actualizar id_default_group con este
+                    if ($ultimo_grupo) {
+                        $sql = 'UPDATE `' . _DB_PREFIX_ . 'customer` 
+                                SET id_default_group = ' . (int)$ultimo_grupo . '
+                                WHERE id_customer = ' . (int)$id_cliente;
+                        Db::getInstance()->execute($sql);
+                    }
+    
                     break; // Eliminamos solo un grupo, no todos.
                 }
             }
         }
-
-         
-    }
-
-
-    public function hookActionValidateOrder($params)
-    {
-        $id_cliente = $params['order']->id_customer;
-        $grupo_restaurar = $this->obtenerUltimoGrupoEliminado($id_cliente);
-    
-        if ($grupo_restaurar) {
-            $sql = 'INSERT INTO `' . _DB_PREFIX_ . 'customer_group` (id_customer, id_group) 
-                    VALUES (' . (int)$id_cliente . ', ' . (int)$grupo_restaurar . ')';
-            Db::getInstance()->execute($sql);
-    
-            $this->eliminarGrupoGuardado($id_cliente); // Eliminamos de la tabla de eliminados
-        }
-    
-        // Asegúrate de que el archivo JS se cargue correctamente
-        PrestaShopLogger::addLog('Añadiendo JS para borrar localStorage.');
-        $this->context->controller->addJS($this->_path . 'views/js/borrarLocalStorage.js');
     }
     
 
-    public function hookActionDispatcherBefore($params)
+public function hookActionValidateOrder($params)
+{
+    $id_cliente = $params['order']->id_customer;
+    $grupo_restaurar = $this->obtenerUltimoGrupoEliminado($id_cliente);
+
+    if ($grupo_restaurar) {
+        // Restaurar el grupo en ps_customer (actualizar id_default_group)
+        $sql = 'UPDATE `' . _DB_PREFIX_ . 'customer` 
+                SET id_default_group = ' . (int)$grupo_restaurar . ' 
+                WHERE id_customer = ' . (int)$id_cliente;
+        Db::getInstance()->execute($sql);
+
+        // Eliminar el registro de grupo eliminado
+        $this->eliminarGrupoGuardado($id_cliente);
+    }
+
+    // Borrar la cookie
+    if (isset($_COOKIE['auto_group_promotion_modal'])) {
+        setcookie('auto_group_promotion_modal', '', time() - 3600, '/');
+        PrestaShopLogger::addLog('Cookie auto_group_promotion_modal eliminada.');
+    }
+}
+
+public function hookActionDispatcherBefore($params)
 {
     $context = Context::getContext();
     $id_cliente = $context->customer->id;
@@ -191,28 +208,27 @@ class Auto_Group_Promotion extends Module
         return;
     }
 
-    // Obtenemos el nombre del controlador usando Tools::getValue('controller')
+    // Verificamos si estamos en la página de pago/checkout
     $controller_name = Tools::getValue('controller');
-    PrestaShopLogger::addLog('Controller: ' . $controller_name);  // Log para verificar el controlador actual
-
-    // Verificamos si estamos en la página de pago/checkout (order, orderconfirmation, etc.)
     $paginas_pago = ['order', 'orderconfirmation', 'ajax'];  // Añadimos 'order' aquí
     if (in_array($controller_name, $paginas_pago)) {
-        PrestaShopLogger::addLog('Estamos en una página de pago/checkout, no restauramos el grupo.');
         return; // No restauramos el grupo si estamos en una página de pago o checkout
     }
 
-    // Si el cliente abandona el checkout, restauramos su grupo
+    // Restaurar el grupo si el cliente abandona el checkout
     $grupo_restaurar = $this->obtenerUltimoGrupoEliminado($id_cliente);
     if ($grupo_restaurar) {
+        // Restauramos el grupo en ps_customer (id_default_group)
         Db::getInstance()->execute(
-            'INSERT INTO `' . _DB_PREFIX_ . 'customer_group` (id_customer, id_group) 
-            VALUES (' . (int)$id_cliente . ', ' . (int)$grupo_restaurar . ')'
+            'UPDATE `' . _DB_PREFIX_ . 'customer` 
+            SET id_default_group = ' . (int)$grupo_restaurar . ' 
+            WHERE id_customer = ' . (int)$id_cliente
         );
 
-        // Eliminamos el registro temporal
+        // Eliminar el registro temporal
         $this->eliminarGrupoGuardado($id_cliente);
     }
 }
+
 
 }
